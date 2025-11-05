@@ -1,3 +1,8 @@
+# Fix Qt/OpenCV GUI issues for headless environments
+import os
+os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+os.environ['OPENCV_IO_ENABLE_OPENEXR'] = '0'
+
 from tqdm import tqdm
 from einops import rearrange
 import PIL, time, json, datetime
@@ -161,18 +166,27 @@ def get_args_parser():
 
     return args
 
-def configure_optimizers(model, lr, betas=(0.9, 0.96), weight_decay=4.5e-2):
-    optimizer = torch.optim.Adam(model.module.anchor_net.parameters(), lr=lr, betas=betas, weight_decay=weight_decay)
+def configure_optimizers(model, lr, betas=(0.9, 0.96), weight_decay=4.5e-2, use_distributed=False):
+    # Handle both distributed and non-distributed models
+    if use_distributed:
+        optimizer = torch.optim.Adam(model.module.anchor_net.parameters(), lr=lr, betas=betas, weight_decay=weight_decay)
+    else:
+        optimizer = torch.optim.Adam(model.anchor_net.parameters(), lr=lr, betas=betas, weight_decay=weight_decay)
     return optimizer
 
-def train(args, lr_schedule, model, template, len_train_dataset, data_loader_train, optim, device_id):
+def train(args, lr_schedule, model, template, len_train_dataset, data_loader_train, optim, device_id, use_distributed=False):
     save_path = args.save_path
-    rank = dist.get_rank()
+    if use_distributed:
+        rank = dist.get_rank()
+    else:
+        rank = 0
+
     if not os.path.exists(save_path) and rank == 0:
         os.mkdir(save_path)
 
     for epoch in range(1, args.epochs+1):
-        data_loader_train.sampler.set_epoch(epoch)
+        if use_distributed and hasattr(data_loader_train.sampler, 'set_epoch'):
+            data_loader_train.sampler.set_epoch(epoch)
         metric_logger = misc.MetricLogger(delimiter="  ")
         metric_logger.add_meter('lr', misc.SmoothedValue(window_size=1, fmt='{value:.6f}'))
         if rank == 0:
@@ -183,10 +197,16 @@ def train(args, lr_schedule, model, template, len_train_dataset, data_loader_tra
             o_prompt, e_prompt = o_prompt[0], e_prompt[0]
             e_prompt = compose_text_with_templates(e_prompt, template)
             with torch.cuda.amp.autocast():
-                bboxs = torch.ceil(map_cooridates(model.module.get_anchor_box(imgs)))
-                imgs_new, mask_imgs = get_mask_imgs(imgs, bboxs)
-                results = model.module.generate_result(imgs_new.to(device_id), mask_imgs.to(device_id), e_prompt).to(device_id)
-                loss, loss_clip, loss_cip_dir, loss_structure = model.module.get_loss(imgs_new, results, e_prompt, o_prompt)
+                if use_distributed:
+                    bboxs = torch.ceil(map_cooridates(model.module.get_anchor_box(imgs)))
+                    imgs_new, mask_imgs = get_mask_imgs(imgs, bboxs)
+                    results = model.module.generate_result(imgs_new.to(device_id), mask_imgs.to(device_id), e_prompt).to(device_id)
+                    loss, loss_clip, loss_cip_dir, loss_structure = model.module.get_loss(imgs_new, results, e_prompt, o_prompt)
+                else:
+                    bboxs = torch.ceil(map_cooridates(model.get_anchor_box(imgs)))
+                    imgs_new, mask_imgs = get_mask_imgs(imgs, bboxs)
+                    results = model.generate_result(imgs_new.to(device_id), mask_imgs.to(device_id), e_prompt).to(device_id)
+                    loss, loss_clip, loss_cip_dir, loss_structure = model.get_loss(imgs_new, results, e_prompt, o_prompt)
             loss.backward()
             if data_iter_step % args.accum_grad == 0:
                 optim.step()
@@ -195,23 +215,44 @@ def train(args, lr_schedule, model, template, len_train_dataset, data_loader_tra
 
         if rank == 0:
             if epoch % args.ckpt_interval == 0:
-                torch.save(model.state_dict(), os.path.join(save_path, f'transformer_epoch_{epoch}.pth'))
-            torch.save(model.state_dict(), os.path.join(save_path, 'last.pth'))
+                if use_distributed:
+                    torch.save(model.state_dict(), os.path.join(save_path, f'transformer_epoch_{epoch}.pth'))
+                else:
+                    torch.save(model.state_dict(), os.path.join(save_path, f'transformer_epoch_{epoch}.pth'))
+            if use_distributed:
+                torch.save(model.state_dict(), os.path.join(save_path, 'last.pth'))
+            else:
+                torch.save(model.state_dict(), os.path.join(save_path, 'last.pth'))
 
     return model
 
 def main(args):
-    dist.init_process_group("nccl", init_method='env://')
-    rank = dist.get_rank()
-    device_id = rank % torch.cuda.device_count()
+    # Check if running in distributed mode
+    use_distributed = 'RANK' in os.environ and 'WORLD_SIZE' in os.environ
+
+    if use_distributed:
+        # Distributed training mode
+        dist.init_process_group("nccl", init_method='env://')
+        rank = dist.get_rank()
+        device_id = rank % torch.cuda.device_count()
+        num_tasks = misc.get_world_size()
+    else:
+        # Single GPU mode (non-distributed)
+        print("Running in single GPU mode (non-distributed)")
+        rank = 0
+        device_id = 0
+        num_tasks = 1
 
     device = torch.device(args.device)
 
-    seed = args.seed + misc.get_rank()
+    if use_distributed:
+        seed = args.seed + misc.get_rank()
+    else:
+        seed = args.seed
     torch.manual_seed(seed)
     np.random.seed(seed)
 
-    cudnn.benchmark= True
+    cudnn.benchmark = True
 
     template = get_augmentations_template()
 
@@ -219,7 +260,9 @@ def main(args):
         os.mkdir(args.save_path)
 
     model = RGN(image_size=args.image_size, device=device_id, args=args).to(device_id)
-    model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
+    if use_distributed:
+        model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
+
     if rank == 0 and not os.path.exists(args.output_dir):
         os.mkdir(args.output_dir)
     dirs = os.listdir(args.output_dir)
@@ -229,18 +272,25 @@ def main(args):
 
     len_train_dataset = len(train_dataset)
 
-    num_tasks = misc.get_world_size()
-    sampler = torch.utils.data.DistributedSampler(
+    if use_distributed:
+        sampler = torch.utils.data.DistributedSampler(
             train_dataset, num_replicas=num_tasks, rank=rank, shuffle=False, drop_last=False
         )
-
-    data_loader_train = torch.utils.data.DataLoader(
-        train_dataset, sampler=sampler,
-        batch_size=args.batch_size,
-        num_workers=args.num_workers,
-        pin_memory=args.pin_mem,
-        drop_last=False,
-        shuffle=False)
+        data_loader_train = torch.utils.data.DataLoader(
+            train_dataset, sampler=sampler,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            pin_memory=args.pin_mem,
+            drop_last=False,
+            shuffle=False)
+    else:
+        data_loader_train = torch.utils.data.DataLoader(
+            train_dataset,
+            batch_size=args.batch_size,
+            num_workers=args.num_workers,
+            pin_memory=args.pin_mem,
+            drop_last=False,
+            shuffle=False)
 
     data_loader_test = torch.utils.data.DataLoader(
         test_dataset,
@@ -249,15 +299,15 @@ def main(args):
         shuffle=False,
         pin_memory=args.pin_mem)
 
-    optim = configure_optimizers(model, args.lr)
-    total_steps = len_train_dataset / (args.batch_size*num_tasks)
+    optim = configure_optimizers(model, args.lr, use_distributed=use_distributed)
+    total_steps = len_train_dataset / (args.batch_size * num_tasks)
     lr_schedule = CosineAnnealingLR(optim, T_max=args.epochs*total_steps)
     optim.zero_grad()
-    model = train(args, lr_schedule, model, template, len_train_dataset, data_loader_train, optim, device_id)
+    model = train(args, lr_schedule, model, template, len_train_dataset, data_loader_train, optim, device_id, use_distributed=use_distributed)
     if rank == 0:
         print('Generating edited images!')
         model.eval()
-        predict(args, model, template, data_loader_test, device_id)
+        predict(args, model, template, data_loader_test, device_id, use_distributed=use_distributed)
 
 
 

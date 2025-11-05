@@ -75,13 +75,19 @@ def save_img(args, batch, results, bboxs, imgs, mask_imgs, editing_rompt, input_
 
     get_final_img(args, editing_rompt, ori_img_path, new_path2)
 
-def predict(args, model, template, data_loader_test, device_id):
+def predict(args, model, template, data_loader_test, device_id, use_distributed=False):
     for data_iter_step, (imgs, o_prompt, e_prompt) in enumerate(data_loader_test):
         imgs = imgs.to(device=device_id, non_blocking=True)[0].unsqueeze(0)
         o_prompt, e_prompt = o_prompt[0], e_prompt[0]
         e_prompt = compose_text_with_templates(e_prompt, template)
-        bboxs = torch.ceil(map_cooridates(model.module.get_anchor_box(imgs)))
-        imgs = imgs.repeat_interleave(bboxs.shape[0]//imgs.shape[0], 0)
-        _, mask_imgs = get_mask_imgs(imgs, bboxs)
-        results = model.module.generate_result(imgs, mask_imgs.to(device_id), e_prompt)
+        if use_distributed:
+            bboxs = torch.ceil(map_cooridates(model.module.get_anchor_box(imgs)))
+            imgs = imgs.repeat_interleave(bboxs.shape[0]//imgs.shape[0], 0)
+            _, mask_imgs = get_mask_imgs(imgs, bboxs)
+            results = model.module.generate_result(imgs, mask_imgs.to(device_id), e_prompt)
+        else:
+            bboxs = torch.ceil(map_cooridates(model.get_anchor_box(imgs)))
+            imgs = imgs.repeat_interleave(bboxs.shape[0]//imgs.shape[0], 0)
+            _, mask_imgs = get_mask_imgs(imgs, bboxs)
+            results = model.generate_result(imgs, mask_imgs.to(device_id), e_prompt)
         save_img(args, data_iter_step, results, bboxs, imgs, mask_imgs, e_prompt, o_prompt)
