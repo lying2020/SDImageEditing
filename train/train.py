@@ -1,82 +1,161 @@
 from tqdm import tqdm
 from einops import rearrange
+import PIL, time, json, datetime
+import random
+import numpy as np
 from PIL import Image
 from copy import deepcopy
 from torchvision.utils import save_image
 from typing import List, Optional, Union
-from torch import autocast
-from torchvision import utils as vutils
-from utils.util import EditingJsonDataset, plot_images
-from lr_schedule import WarmupLinearLRSchedule
-from torch.optim.lr_scheduler import CosineAnnealingLR
-from torch.utils.tensorboard import SummaryWriter
-from models.model import RGN
-from models.utils import visualize_images, read_image_from_url, draw_image_with_bbox_new, Bbox
-from utils.util2 import compose_text_with_templates, get_augmentations_template
-from torchvision.utils import draw_bounding_boxes
-from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
-from torchvision import datasets, transforms
-from engine import *
-from vis import *
-import os, jax, cv2, pdb
-import numpy as np
 import argparse, torch, inspect
-import PIL, time, json, datetime
-import random
+
+from torch import autocast
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
-import utils.misc as misc
-import torchvision.transforms as T
 import torch.distributed as dist
-import sys
+from torch.optim.lr_scheduler import CosineAnnealingLR
+import torchvision.transforms as T
+from torchvision import utils as vutils
+from torchvision.utils import draw_bounding_boxes
+from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+from torchvision import datasets, transforms
+
+import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 print(sys.path)
 import project as prj
 
+from lr_schedule import WarmupLinearLRSchedule
+from engine import *
+from vis import *
+from utils.util2 import compose_text_with_templates, get_augmentations_template
+from utils.util import EditingJsonDataset, plot_images
+import utils.misc as misc
+from models.model import RGN
+from models.utils import visualize_images, read_image_from_url, draw_image_with_bbox_new, Bbox
+
+
+
 def get_args_parser():
     parser = argparse.ArgumentParser(description="train models")
-    parser.add_argument('--run_name', type=str, default="exp")
-    parser.add_argument("--nodes", default=1, type=int, help='number of nodes to request')
 
-    parser.add_argument('--image_size', type=int, default=256, help='image height and width.')
+    # ============================================================================
+    # Experiment Name and Basic Configuration
+    # ============================================================================
+    parser.add_argument('--run_name', type=str, default="exp",
+                       help='Experiment run name for identifying different experiments')
+    parser.add_argument("--nodes", default=1, type=int,
+                       help='Number of nodes (machines) for distributed training, set to 1 for single machine')
 
-    # file path parameters
-    parser.add_argument('--image_dir_path', type=str, default=prj.IMAGES_DIR, help='dir path to input images.')
-    parser.add_argument('--json_file', type=str, default=prj.IMAGES_JSON_FILE, help='path to image-prompt file.')
+    # ============================================================================
+    # File Path Parameters
+    # ============================================================================
+    parser.add_argument('--image_dir_path', type=str, default=prj.IMAGES_DIR,
+                       help='Directory path containing input images, used for batch processing')
+    parser.add_argument('--json_file', type=str, default=prj.IMAGES_JSON_FILE,
+                       help='Path to JSON configuration file containing original descriptions and editing prompts for each image')
+    parser.add_argument('--output_dir', type=str, default=prj.OUTPUT_DIR,
+                       help='Output directory to save edited images')
+    parser.add_argument('--save_path', type=str, default=prj.CHECKPOINTS_DIR,
+                       help='Path to save model checkpoints during training')
+    parser.add_argument('--load_checkpoint_path', type=str, default=None,
+                       help='Path to load existing checkpoint for resuming training or inference')
 
-    parser.add_argument('--diffusion_model_path', type=str, default=prj.INPAINTING_MODEL_PATH, help='path to stable diffusion model.')
-    parser.add_argument('--save_path', type=str, default=prj.CHECKPOINTS_DIR, help='path to save checkpoint.')
-    parser.add_argument('--load_checkpoint_path', type=str, default=None, help='path to save checkpoint.')
+    # ============================================================================
+    # Model Related Parameters
+    # ============================================================================
+    parser.add_argument('--diffusion_model_path', type=str, default=prj.INPAINTING_MODEL_PATH,
+                       help='Path to diffusion model, can be HuggingFace model ID or local path. '
+                            'Recommended: stabilityai/stable-diffusion-2-inpainting')
+    parser.add_argument('--image_size', type=int, default=256,
+                       help='Input image height and width in pixels, images will be resized to this size')
+    parser.add_argument('--device', type=str, default="cuda",
+                       help='Training device, use "cuda" for GPU or "cpu" for CPU')
 
-    parser.add_argument('--output_dir', type=str, default=prj.OUTPUT_DIR, help='path to output dir.')
+    # ============================================================================
+    # Training Core Parameters (affect editing quality and effectiveness)
+    # ============================================================================
+    parser.add_argument('--lr', type=float, default=5e-3,
+                       help='Learning rate controlling the step size for model parameter updates. '
+                            'Larger values train faster but may be unstable, smaller values train slower but more stable. '
+                            'Recommended range: 1e-3 to 1e-2')
+    parser.add_argument('--epochs', type=int, default=10,
+                       help='Number of training epochs, how many times to iterate through the entire dataset. '
+                            'For image editing tasks, usually 1-2 epochs are sufficient')
+    parser.add_argument('--per_image_iteration', type=int, default=5,
+                       help='Number of training iterations per image, controlling how many optimization iterations per image. '
+                            'Larger values improve editing quality but take longer. Recommended: 5-20')
+    parser.add_argument('--accum_grad', type=int, default=25,
+                       help='Gradient accumulation steps, used to simulate large batch effects when batch_size is small. '
+                            'Effective batch_size = batch_size * accum_grad')
 
-    parser.add_argument('--draw_box', action='store_true', default=True, help='draw boxes')
+    # ============================================================================
+    # Sampling Parameters (affect editing region localization accuracy)
+    # ============================================================================
+    parser.add_argument('--max_window_size', type=int, default=10,
+                       help='Maximum bounding box size in pixels, controlling the maximum range of editing region. '
+                            'Larger values allow editing larger regions but increase computation. Recommended: 10-20')
+    parser.add_argument('--point_number', type=int, default=9,
+                       help='Number of sampled anchor points for locating editing regions. '
+                            'Larger values improve localization accuracy but increase computation. Recommended: 5-12')
 
-    parser.add_argument('--device', type=str, default="cuda", help='device the training is on.')
-    parser.add_argument('--batch_size', type=int, default=8, help='batch size for training.')
-    parser.add_argument('--accum_grad', type=int, default=25, help='number for gradient accumulation.')
-    parser.add_argument('--epochs', type=int, default=10, help='number of epochs to train.')
-    parser.add_argument('--per_image_iteration', type=int, default=5, help='training iterations for each image.')
+    # ============================================================================
+    # Loss Function Parameters (control training objective weights)
+    # ============================================================================
+    parser.add_argument('--loss_alpha', type=int, default=1,
+                       help='CLIP loss weight coefficient, controlling text-image similarity loss weight')
+    parser.add_argument('--loss_beta', type=int, default=1,
+                       help='Directional CLIP loss weight coefficient, controlling editing direction loss weight')
+    parser.add_argument('--loss_gamma', type=int, default=1,
+                       help='Structure loss weight coefficient, controlling original image structure preservation loss weight')
+    parser.add_argument('--test_alpha', type=int, default=2,
+                       help='Text-image similarity weight coefficient during testing')
+    parser.add_argument('--test_beta', type=int, default=1,
+                       help='Image-image similarity weight coefficient during testing')
 
-    parser.add_argument('--loss_alpha', type=int, default=1, help='coefficient of clip loss.')
-    parser.add_argument('--loss_beta', type=int, default=1, help='coefficient of directional clip loss.')
-    parser.add_argument('--loss_gamma', type=int, default=1, help='coefficient of sturcture loss.')
-    parser.add_argument('--test_alpha', type=int, default=2, help='coefficient of text-to-image similarity.')
-    parser.add_argument('--test_beta', type=int, default=1, help='coefficient of image-to-image similarity.')
-    parser.add_argument('--ckpt_interval', type=int, default=10, help='number of epochs to save.')
-    parser.add_argument('--lr', type=float, default=5e-3, help='learning rate.')
-    parser.add_argument('--max_window_size', type=int, default=10, help='max window size')
-    parser.add_argument('--point_number', type=int, default=9, help='point sample number')
-    parser.add_argument('--num_workers', default=16, type=int, help='number of workers for dataloader')
-    parser.add_argument('--seed', default=42, type=int, help='random seed')
-    parser.add_argument('--pin_mem', action='store_true', default=True, help='pin cpu memory in dataloader for more efficient transfer to gpu.')
+    # ============================================================================
+    # System Performance Parameters (affect training speed and resource usage)
+    # ============================================================================
+    parser.add_argument('--batch_size', type=int, default=8,
+                       help='Batch size, number of images processed at once. '
+                            'For image editing tasks, batch_size=1 usually works best, but can be increased for speed. '
+                            'Note: GPU memory usage is proportional to batch_size')
+    parser.add_argument('--num_workers', default=16, type=int,
+                       help='Number of data loading processes for parallel data loading. '
+                            'Recommended: half to full number of CPU cores, too many may cause high memory usage')
+    parser.add_argument('--pin_mem', action='store_true', default=True,
+                       help='Pin memory, keep data in pinned memory to speed up GPU transfer. '
+                            'Can improve data loading speed by 10-20%% but requires more memory')
 
-    # distributed training parameters
-    parser.add_argument('--world_size', default=1, type=int, help='number of distributed processes')
-    parser.add_argument('--local_rank', default=0, type=int, help='local rank')
-    parser.add_argument('--dist_on_itp', action='store_true', default=False, help='distributed on itp')
-    parser.add_argument('--dist_url', default='env://', help='url used to set up distributed training')
+    # ============================================================================
+    # Visualization Parameters
+    # ============================================================================
+    parser.add_argument('--draw_box', action='store_true', default=True,
+                       help='Whether to draw bounding boxes of editing regions for visualization. '
+                            'When enabled, creates a "boxes" subdirectory in output_dir to save visualization results')
+
+    # ============================================================================
+    # Random Seed and Other Configuration
+    # ============================================================================
+    parser.add_argument('--seed', default=42, type=int,
+                       help='Random seed for controlling random number generation to ensure reproducibility. '
+                            'Same seed + same parameters = same results')
+    parser.add_argument('--ckpt_interval', type=int, default=10,
+                       help='Checkpoint saving interval, save model every N epochs')
+
+    # ============================================================================
+    # Distributed Training Parameters (multi-GPU/multi-machine training)
+    # ============================================================================
+    parser.add_argument('--world_size', default=1, type=int,
+                       help='Total number of distributed processes, usually equals number_of_nodes × GPUs_per_node')
+    parser.add_argument('--local_rank', default=0, type=int,
+                       help='Local process rank, automatically set by torchrun, no need to specify manually')
+    parser.add_argument('--dist_on_itp', action='store_true', default=False,
+                       help='Whether to run distributed training on ITP (Inter-Thread Parallelism)')
+    parser.add_argument('--dist_url', default='env://',
+                       help='Distributed training initialization URL for setting up distributed training environment. '
+                            'Usually use "env://" to read from environment variables')
 
     args = parser.parse_args()
 

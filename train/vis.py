@@ -8,7 +8,6 @@ from torch import autocast
 from torchvision import utils as vutils
 from utils.util import build_dataset, plot_images
 from lr_schedule import WarmupLinearLRSchedule
-from torch.utils.tensorboard import SummaryWriter
 from models.model import RGN
 from models.utils import visualize_images, read_image_from_url, draw_image_with_bbox_new, Bbox
 from utils.util2 import compose_text_with_templates, get_augmentations_template

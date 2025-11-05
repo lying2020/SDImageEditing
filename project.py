@@ -19,23 +19,32 @@ import matplotlib.font_manager as font_manager
 import matplotlib.colors as colors
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
+
+# pretrained model path
 # INPAINTING_MODEL_PATH = "/home/liying/Documents/stable-diffusion-inpainting"
 INPAINTING_MODEL_PATH = "/home/liying/Desktop/stable-diffusion-inpainting"
 
 STABLE_DIFFUSION_V1_5_MODEL_PATH = "/home/liying/Documents/stable-diffusion-v1-5"
 
-EDITING_RESULTS_DIR = os.path.join(current_dir, "editing_results")
-os.makedirs(EDITING_RESULTS_DIR, exist_ok=True)
 
+# dataset path
 CHECKPOINTS_DIR = os.path.join(current_dir, "checkpoints")
 os.makedirs(CHECKPOINTS_DIR, exist_ok=True)
 
-IMAGES_DIR = os.path.join(current_dir, "images")
+DATASETS_DIR = os.path.join(current_dir, "datasets")
+os.makedirs(DATASETS_DIR, exist_ok=True)
+
+IMAGES_DIR = os.path.join(DATASETS_DIR, "images")
 os.makedirs(IMAGES_DIR, exist_ok=True)
 
-IMAGES_JSON_FILE = os.path.join(IMAGES_DIR, "images.json")
+IMAGES_JSON_FILE = os.path.join(DATASETS_DIR, "images.json")
 if not os.path.exists(IMAGES_JSON_FILE):
     raise FileNotFoundError(f"Images JSON file not found at {IMAGES_JSON_FILE}")
 
+
+# result path
 OUTPUT_DIR = os.path.join(current_dir, "output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+EDITING_RESULTS_DIR = os.path.join(OUTPUT_DIR, "editing_results")
+os.makedirs(EDITING_RESULTS_DIR, exist_ok=True)
