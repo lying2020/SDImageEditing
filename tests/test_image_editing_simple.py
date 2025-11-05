@@ -112,6 +112,6 @@ if __name__ == "__main__":
     output = sys.argv[4] if len(sys.argv) > 4 else "result.png"
 
     image_path = os.path.join(prj.current_dir, image_path)
-    output_path = os.path.join(prj.OUTPUT_DIR, output)
+    output_path = os.path.join(prj.EDITING_RESULTS_DIR, output)
 
     quick_edit(image_path, mask_type, prompt, output_path)

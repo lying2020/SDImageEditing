@@ -103,7 +103,7 @@ def test_case_1_complete(pipe, base_image):
     ).images[0]
 
     # 保存结果
-    result_path = f"{prj.OUTPUT_DIR}/01_complete_center.png"
+    result_path = f"{prj.EDITING_RESULTS_DIR}/01_complete_center.png"
     result.save(result_path)
     print(f"✓ 结果已保存: {result_path}")
     return result
@@ -127,7 +127,7 @@ def test_case_2_add_object(pipe, base_image):
         guidance_scale=7.5
     ).images[0]
 
-    result_path = f"{prj.OUTPUT_DIR}/02_add_object.png"
+    result_path = f"{prj.EDITING_RESULTS_DIR}/02_add_object.png"
     result.save(result_path)
     print(f"✓ 结果已保存: {result_path}")
     return result
@@ -151,7 +151,7 @@ def test_case_3_remove_object(pipe, base_image):
         guidance_scale=7.5
     ).images[0]
 
-    result_path = f"{prj.OUTPUT_DIR}/03_remove_object.png"
+    result_path = f"{prj.EDITING_RESULTS_DIR}/03_remove_object.png"
     result.save(result_path)
     print(f"✓ 结果已保存: {result_path}")
     return result
@@ -174,7 +174,7 @@ def test_case_4_replace_object(pipe, base_image):
         guidance_scale=8.0
     ).images[0]
 
-    result_path = f"{prj.OUTPUT_DIR}/04_replace_object.png"
+    result_path = f"{prj.EDITING_RESULTS_DIR}/04_replace_object.png"
     result.save(result_path)
     print(f"✓ 结果已保存: {result_path}")
     return result
@@ -198,7 +198,7 @@ def test_case_5_extend_image(pipe, base_image):
         guidance_scale=7.5
     ).images[0]
 
-    result_path = f"{prj.OUTPUT_DIR}/05_extend_image.png"
+    result_path = f"{prj.EDITING_RESULTS_DIR}/05_extend_image.png"
     result.save(result_path)
     print(f"✓ 结果已保存: {result_path}")
     return result
@@ -219,7 +219,7 @@ def test_case_6_repair_image(pipe, base_image):
         guidance_scale=7.5
     ).images[0]
 
-    result_path = f"{prj.OUTPUT_DIR}/06_repair_image.png"
+    result_path = f"{prj.EDITING_RESULTS_DIR}/06_repair_image.png"
     result.save(result_path)
     print(f"✓ 结果已保存: {result_path}")
     return result
@@ -241,7 +241,7 @@ def test_case_7_style_transfer(pipe, base_image):
         guidance_scale=8.5
     ).images[0]
 
-    result_path = f"{prj.OUTPUT_DIR}/07_style_transfer.png"
+    result_path = f"{prj.EDITING_RESULTS_DIR}/07_style_transfer.png"
     result.save(result_path)
     print(f"✓ 结果已保存: {result_path}")
     return result
@@ -267,7 +267,7 @@ def test_case_8_change_background(pipe, base_image):
         guidance_scale=7.5
     ).images[0]
 
-    result_path = f"{prj.OUTPUT_DIR}/08_change_background.png"
+    result_path = f"{prj.EDITING_RESULTS_DIR}/08_change_background.png"
     result.save(result_path)
     print(f"✓ 结果已保存: {result_path}")
     return result
@@ -289,7 +289,7 @@ def test_case_9_add_texture(pipe, base_image):
         guidance_scale=7.5
     ).images[0]
 
-    result_path = f"{prj.OUTPUT_DIR}/09_add_texture.png"
+    result_path = f"{prj.EDITING_RESULTS_DIR}/09_add_texture.png"
     result.save(result_path)
     print(f"✓ 结果已保存: {result_path}")
     return result
@@ -315,7 +315,7 @@ def test_case_10_creative_edit(pipe, base_image):
         guidance_scale=8.0
     ).images[0]
 
-    result_path = f"{prj.OUTPUT_DIR}/10_creative_edit.png"
+    result_path = f"{prj.EDITING_RESULTS_DIR}/10_creative_edit.png"
     result.save(result_path)
     print(f"✓ 结果已保存: {result_path}")
     return result
@@ -330,7 +330,7 @@ def main():
     pipe = load_inpainting_model()
 
     # 加载基础图像（如果存在，否则生成一个）
-    base_image_path = os.path.join(prj.OUTPUT_DIR, "generated_image.png")
+    base_image_path = os.path.join(prj.EDITING_RESULTS_DIR, "generated_image.png")
     if os.path.exists(base_image_path):
         print(f"使用现有图像: {base_image_path}")
         base_image = Image.open(base_image_path).convert("RGB")
@@ -347,8 +347,8 @@ def main():
             text_pipe = text_pipe.to("cuda")
         base_image = text_pipe("a beautiful landscape, mountains, sky, detailed",
                               num_inference_steps=20).images[0]
-        base_image.save(os.path.join(prj.OUTPUT_DIR, base_image_path))
-        print(f"✓ 测试图像已保存: {os.path.join(prj.OUTPUT_DIR, base_image_path)}")
+        base_image.save(os.path.join(prj.EDITING_RESULTS_DIR, base_image_path))
+        print(f"✓ 测试图像已保存: {os.path.join(prj.EDITING_RESULTS_DIR, base_image_path)}")
 
     # 确保图像尺寸合适（512x512 或 768x768）
     if base_image.size[0] != 512 or base_image.size[1] != 512:
@@ -388,7 +388,7 @@ def main():
     print("=" * 60)
     for name, status in results.items():
         print(f"{name:15s}: {status}")
-    print(f"\n所有结果保存在: {prj.OUTPUT_DIR}/")
+    print(f"\n所有结果保存在: {prj.EDITING_RESULTS_DIR}/")
     print("=" * 60)
 
 if __name__ == "__main__":

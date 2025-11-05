@@ -23,5 +23,5 @@ if torch.cuda.is_available():
 prompt = "Astronaut in a jungle, cold color palette, muted colors, detailed, 8k"
 print("正在生成图像...")
 image = pipe(prompt, num_inference_steps=20).images[0]
-image.save(os.path.join(prj.OUTPUT_DIR, "generated_image.png"))
+image.save(os.path.join(prj.EDITING_RESULTS_DIR, "generated_image.png"))
 print("图像已保存为 generated_image.png")

@@ -56,13 +56,13 @@ def save_img(args, batch, results, bboxs, imgs, mask_imgs, editing_rompt, input_
         os.mkdir(new_path2)
     if not os.path.exists(new_path3):
         os.mkdir(new_path3)
-        
+
     transform = T.Resize(512)
     for i in range(results.shape[0]):
         img = (imgs[i]*255.0).to(dtype=torch.uint8)
         bbox = bboxs[i].to(dtype=torch.uint8).unsqueeze(0)
         draw_img = draw_bounding_boxes(img, bbox, width=3, colors=(255,255,0))
-        
+
         img_name = '-'.join(str(editing_rompt).split(' '))
         ori_img_path = os.path.join(new_path, 'input_image.png')
         if i == 0:
@@ -73,7 +73,7 @@ def save_img(args, batch, results, bboxs, imgs, mask_imgs, editing_rompt, input_
             draw_img = draw_bounding_boxes(img, bbox, width=3, colors=(255,255,0))
             draw_img_path = os.path.join(new_path3, str(batch) + '_' + str(img_name) + 'anchor' + str(i)+'_ori_draw.png')
             save_image(transform((draw_img/255.0).float()), draw_img_path)
-            
+
     get_final_img(args, editing_rompt, ori_img_path, new_path2)
 
 def predict(args, model, template, data_loader_test, device_id):
@@ -86,4 +86,3 @@ def predict(args, model, template, data_loader_test, device_id):
         _, mask_imgs = get_mask_imgs(imgs, bboxs)
         results = model.module.generate_result(imgs, mask_imgs.to(device_id), e_prompt)
         save_img(args, data_iter_step, results, bboxs, imgs, mask_imgs, e_prompt, o_prompt)
-

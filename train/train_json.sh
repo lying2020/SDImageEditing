@@ -1,7 +1,7 @@
 torchrun --nnodes=1 --nproc_per_node=2 train.py \
-	--image_dir_path images/ \
-	--output_dir output/ \
-	--json_file images.json \
+	--image_dir_path ../images/ \
+	--output_dir ../output/ \
+	--json_file ../images.json \
         --diffusion_model_path 'stabilityai/stable-diffusion-2-inpainting' \
         --draw_box \
 	--lr 5e-3 \
@@ -13,4 +13,4 @@ torchrun --nnodes=1 --nproc_per_node=2 train.py \
 	--pin_mem \
 	--point_number 9 \
 	--batch_size 1 \
-	--save_path checkpoints/ 
+	--save_path ../checkpoints/

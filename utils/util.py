@@ -13,53 +13,14 @@ from PIL import Image
 from torch.utils.data import Dataset, DataLoader
 import matplotlib.pyplot as plt
 
-class EditingJsonDataset(Dataset):
-    def __init__(self, args, repeats=1):
-        self.image_dir = args.image_dir_path
-        self.transform = build_transform(args)
-        with open(args.json_file, 'r') as f:
-            self.image_prompt = json.load(f)
-            self.image_files = list(self.image_prompt.keys())*repeats
-        f.close()
 
-    def __len__(self):
-        return len(self.image_files)
-
-    def __getitem__(self, idx):
-        img_name = os.path.join(self.image_dir, self.image_files[idx])
-        image = Image.open(img_name)
-        
-        original_prompt, editing_prompt = self.image_prompt[self.image_files[idx]][0], self.image_prompt[self.image_files[idx]][1]
-        if self.transform:
-            image = self.transform(image)
-
-        return image, original_prompt, editing_prompt
-    
-class EditingSingleImageDataset(Dataset):
-    def __init__(self, args, repeats=1):
-        self.transform = build_transform(args)
-        self.image_files = [args.image_file_path] * repeats
-        self.image_prompt = [args.image_caption, args.editing_prompt]
-
-    def __len__(self):
-        return len(self.image_files)
-
-    def __getitem__(self, idx):
-        img_name = self.image_files[idx]
-        image = Image.open(img_name)
-
-        original_prompt, editing_prompt = self.image_prompt[0], self.image_prompt[1]
-        if self.transform:
-            image = self.transform(image)
-
-        return image, original_prompt, editing_prompt
 
 def build_dataset(args, data_path):
-    transform = build_transform(is_train, args)
+    transform = build_transform(args)
     root = data_path
     dataset = datasets.ImageFolder(root, transform=transform)
 
-    return datase
+    return dataset
 
 def build_transform(args):
     mean = IMAGENET_DEFAULT_MEAN
@@ -101,3 +62,27 @@ def plot_images(images):
     axarr[2].imshow(half_sample.cpu().detach().numpy()[0].transpose(1, 2, 0))
     axarr[3].imshow(new_sample.cpu().detach().numpy()[0].transpose(1, 2, 0))
     plt.show()
+
+
+
+class EditingJsonDataset(Dataset):
+    def __init__(self, args, repeats=1):
+        self.image_dir = args.image_dir_path
+        self.transform = build_transform(args)
+        with open(args.json_file, 'r') as f:
+            self.image_prompt = json.load(f)
+            self.image_files = list(self.image_prompt.keys())*repeats
+        f.close()
+
+    def __len__(self):
+        return len(self.image_files)
+
+    def __getitem__(self, idx):
+        img_name = os.path.join(self.image_dir, self.image_files[idx])
+        image = Image.open(img_name)
+
+        original_prompt, editing_prompt = self.image_prompt[self.image_files[idx]][0], self.image_prompt[self.image_files[idx]][1]
+        if self.transform:
+            image = self.transform(image)
+
+        return image, original_prompt, editing_prompt
