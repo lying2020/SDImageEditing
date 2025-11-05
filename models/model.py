@@ -35,7 +35,7 @@ class RGN(nn.Module):
         self.dino.eval()
         state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth")
         self.dino.load_state_dict(state_dict, strict=True)
-        
+
         emb_dim, emb_dim2 = 12,8
 
         self.box = torch.Tensor(range(4, self.max_window_size+1, 2)).to(device)
@@ -53,9 +53,9 @@ class RGN(nn.Module):
                 )
         self.conv = nn.Conv2d(768, emb_dim, 1, stride=1)
         self.anchor_net = self.anchor_net.to(device)
-        
+
         self.load_checkpoints()
-        
+
         # define CLIP
         self.clip_extractor = ClipExtractor(self.device)
         self.text_criterion = cosine_loss
@@ -88,12 +88,12 @@ class RGN(nn.Module):
             if self.sample_number > len(arr_points_thre):
                 remain = self.sample_number-len(arr_points_thre)
                 points = torch.cat((points, torch.tensor(arr_points[:remain])), dim=0)
-            
+
             sample_points.append(points.unsqueeze(0))
         sample_points = torch.cat(sample_points, dim=0)
-        
+
         return sample_points
-    
+
     def get_anchor_box(self, imgs):
         w_featmap, h_featmap = 32, 32
         bs = imgs.shape[0]
@@ -104,7 +104,7 @@ class RGN(nn.Module):
 
         # we keep only the output patch attention
         attentions = attentions[:, :, 0, 1:].mean(dim=1).reshape(bs, -1)
-        
+
         if self.threshold is not None:
             val, idx = torch.sort(attentions, descending=False)
             val /= torch.sum(val, dim=1, keepdim=True)
@@ -115,10 +115,10 @@ class RGN(nn.Module):
                 th_attn[index] = th_attn[index][idx2[index]]
             th_attn = th_attn.reshape(bs, w_featmap, h_featmap).float()
         points = self.sample_point(th_attn)
-        
+
         feats = feats.reshape(bs, w_featmap, h_featmap, -1).permute(0,3,1,2)
         img_id = torch.Tensor(range(0,points.shape[1])).reshape(points.shape[1], 1)
-        
+
         roi_feats = []
         for i in range(bs):
             feat = feats[i]
@@ -126,7 +126,7 @@ class RGN(nn.Module):
             for size in range(4, self.max_window_size+1, 2):
                 x1, y1 = (points[i,:,0]-size).unsqueeze(1).clamp_(0, 31), (points[i,:,1]-size).unsqueeze(1).clamp_(0, 31)
                 x2, y2 = (points[i,:,0]+size).unsqueeze(1).clamp_(0, 31), (points[i,:,1]+size).unsqueeze(1).clamp_(0, 31)
-                region = torch.cat([img_id, x1, y1, x2, y2], dim=1).to(self.device) 
+                region = torch.cat([img_id, x1, y1, x2, y2], dim=1).to(self.device)
                 roi_feat = roi_align(feat.unsqueeze(0).repeat_interleave(region.shape[0], 0), region, output_size=(8,8), spatial_scale=0.0625*2)
                 roi_feats_i.append(roi_feat.unsqueeze(0))
             roi_feats.append(torch.cat(roi_feats_i, dim=0).unsqueeze(0))
@@ -139,7 +139,7 @@ class RGN(nn.Module):
         x2_new, y2_new = (points[:, 0]+gap).clamp_(0, 31), (points[:, 1]+gap).clamp_(0, 31)
         bbox = torch.stack([x1_new, y1_new, x2_new, y2_new], dim=1)
         return bbox
-    
+
     def generate_result(self, imgs, mask_imgs, prompts):
         return generate(imgs, mask_imgs, self.pipe, self.generator, prompts, self.device)
 
@@ -155,7 +155,7 @@ class RGN(nn.Module):
 
         loss /= len(outputs) * len(target_embeddings)
         return loss
-    
+
     def calculate_clip_dir_loss(self, inputs, outputs, target_embeddings, src_emb):
         # randomly select embeddings
         n_embeddings = np.random.randint(1, min(len(src_emb), len(target_embeddings)) + 1)
@@ -173,7 +173,7 @@ class RGN(nn.Module):
 
         loss /= len(outputs) * len(target_dirs)
         return loss
-    
+
     def calculate_structure_loss(self, outputs, inputs):
         loss = 0.0
         for input, output in zip(inputs, outputs):
@@ -188,12 +188,11 @@ class RGN(nn.Module):
     def get_loss(self, source_imgs, results, e_prompt, o_prompt):
         text_emb = self.clip_extractor.get_text_embedding(e_prompt, self.device)
         src_emb = self.clip_extractor.get_text_embedding(o_prompt, self.device)
-        loss_clip = self.calculate_clip_loss(results, text_emb)        
+        loss_clip = self.calculate_clip_loss(results, text_emb)
         loss_dir_clip = self.calculate_clip_dir_loss(source_imgs, results, text_emb, src_emb)
         loss_structure = self.calculate_structure_loss(results, source_imgs)
-        
+
         loss = self.alpha*loss_clip + self.beta*loss_dir_clip + self.gamma*loss_structure
         loss.requires_grad_(True)
-       
-        return loss, loss_clip, loss_dir_clip, loss_structure
 
+        return loss, loss_clip, loss_dir_clip, loss_structure

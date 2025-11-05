@@ -27,7 +27,7 @@ import requests
 import pdb
 
 def visualize_images(
-    images: np.ndarray, 
+    images: np.ndarray,
     title: str = '',
     figsize: Tuple[int, int] = (30, 6)
 ) -> None:
@@ -94,8 +94,6 @@ def draw_image_with_bbox_new(
     draw = ImageDraw.Draw(img)
     x1, y1, x2, y2 = bbox.left, bbox.top, \
             bbox.left+bbox.width, bbox.top+bbox.height
-    
+
     draw.rectangle(((x1, y1), (x2,y2)), outline=(255, 0, 0))
     return img
-
-
