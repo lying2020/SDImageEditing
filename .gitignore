@@ -3,6 +3,9 @@ __pycache__/
 *.py[codz]
 *$py.class
 
+output/
+checkpoints/
+
 # C extensions
 *.so
 editing_results/
@@ -11,7 +14,7 @@ editing_results/
 build/
 develop-eggs/
 dist/
-downloads/
+# downloads/
 eggs/
 .eggs/
 lib/

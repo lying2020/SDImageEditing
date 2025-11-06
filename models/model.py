@@ -62,7 +62,15 @@ class RGN(nn.Module):
                 if self.rank == 0:
                     print(f"Failed to load cached DINO model: {e}")
                     print("Downloading DINO model...")
-                state_dict = torch.hub.load_state_dict_from_url(url=dino_url, map_location='cpu')
+                try:
+                    state_dict = torch.hub.load_state_dict_from_url(url=dino_url, map_location='cpu')
+                except Exception as download_error:
+                    if self.rank == 0:
+                        print(f"Download failed: {download_error}")
+                        print("提示: 如果网络无法访问，请:")
+                        print("  1. 设置代理: export http_proxy=http://127.0.0.1:7890")
+                        print(f"  2. 手动下载: wget {dino_url} -P ~/.cache/torch/hub/checkpoints/")
+                    raise
         else:
             # Download if not cached
             if self.rank == 0:
@@ -74,6 +82,7 @@ class RGN(nn.Module):
                     print(f"Failed to download DINO model: {e}")
                     print("Please check your internet connection or download manually:")
                     print(f"  wget {dino_url} -P ~/.cache/torch/hub/checkpoints/")
+                    print("或者设置代理: export http_proxy=http://127.0.0.1:7890")
                 raise
 
         self.dino.load_state_dict(state_dict, strict=True)

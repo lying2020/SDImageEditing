@@ -1,7 +1,7 @@
 from PIL import Image
 from argparse import ArgumentParser
 import os
-import numpy as np 
+import numpy as np
 import clip
 import torch
 import torch.distributed as dist
@@ -10,6 +10,7 @@ import shutil
 import torch.nn as nn
 import argparse
 import utils.vision_transformer as vits
+import utils.misc as misc
 from PIL import ImageFile
 
 ImageFile.LOAD_TRUNCATED_IMAGES = True
@@ -29,7 +30,7 @@ def init_dino_model(device):
     url = "dino_vitbase16_pretrain/dino_vitbase16_pretrain.pth"
     state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/" + url)
     dino.load_state_dict(state_dict, strict=True)
-    
+
     return dino
 
 def extract_features(model, dino_model, preprocess, input_img_path, edit_img_dir, input_text, device):
@@ -52,26 +53,26 @@ def extract_features(model, dino_model, preprocess, input_img_path, edit_img_dir
         text_features = model.encode_text(input_text)
         image_features = model.encode_image(edit_imgs)
         input_img_feature = model.encode_image(input_img)
-        
+
         dino_image_features = dino_model.get_feat_last_self_attention(edit_imgs)[0][:,0,:]
         dino_input_img_feature = dino_model.get_feat_last_self_attention(input_img)[0][:,0,:]
-        
+
 
     input_img_feature /= input_img_feature.norm(dim=-1, keepdim=True)
     image_features /= image_features.norm(dim=-1, keepdim=True)
-    
+
     dino_image_features /= dino_image_features.norm(dim=-1, keepdim=True)
     dino_input_img_feature /= dino_input_img_feature.norm(dim=-1, keepdim=True)
     text_features /= text_features.norm(dim=-1, keepdim=True)
 
     return input_img_feature, image_features, text_features, img_paths, \
-                edit_imgs, input_img, dino_image_features, dino_input_img_feature 
+                edit_imgs, input_img, dino_image_features, dino_input_img_feature
 
-def compute_similarity(input_img_feature, image_features, dino_input_img_feature, dino_image_features, text_features, cosine_sim=True): 
+def compute_similarity(input_img_feature, image_features, dino_input_img_feature, dino_image_features, text_features, cosine_sim=True):
     if cosine_sim == True:
         iti_similarity = torch.nn.functional.cosine_similarity(image_features, input_img_feature).softmax(dim=0)
         tti_similarity = torch.nn.functional.cosine_similarity(image_features, text_features).softmax(dim=0)
-        dino_iti_similarity = torch.nn.functional.cosine_similarity(dino_image_features, dino_input_img_feature).softmax(dim=0) 
+        dino_iti_similarity = torch.nn.functional.cosine_similarity(dino_image_features, dino_input_img_feature).softmax(dim=0)
     else:
         iti_similarity = (100.0 * image_features @ input_img_feature.T).softmax(dim=0)[:, 0]
         tti_similarity = (100.0 * image_features @ text_features.T).softmax(dim=0)[:, 0]
@@ -86,17 +87,17 @@ def get_final_img(args, input_text, input_img_path, edit_img_path, topk_tti=3):
     model, preprocess = init_clip_model(device)
     dino_model = init_dino_model(device)
     img_save, dic = [], {}
-    
+
     input_img_feature, image_features, text_features, img_paths, imgs, \
             input, dino_image_features, dino_input_img_feature = \
                 extract_features(model, dino_model, preprocess, input_img_path, edit_img_path, input_text, device)
-                
+
     iti_similarity, dino_iti_similarity, tti_similarity = compute_similarity(input_img_feature, \
             image_features, dino_input_img_feature, dino_image_features, text_features)
-    
+
     score_tti = alpha * tti_similarity
     indices_tti = score_tti.topk(len(score_tti))[1]
-    
+
     score = alpha * tti_similarity  + beta * iti_similarity
     indices = score.topk(len(score))[1]
 
@@ -106,7 +107,9 @@ def get_final_img(args, input_text, input_img_path, edit_img_path, topk_tti=3):
             img_save.append(img_paths[index])
             break
 
-    rank = dist.get_rank()
+    # Use safe get_rank function that handles both distributed and non-distributed modes
+    rank = misc.get_rank()
+
     for i in range(len(img_save)):
         input_path = img_save[i]
         img_name =  'final_output.png'

@@ -1,5 +1,11 @@
 from torchvision.utils import save_image
 from PIL import Image
+import os
+# 设置 HuggingFace 镜像站点（如果无法访问官方站点）
+if 'HF_ENDPOINT' not in os.environ:
+    # 可以取消注释下面这行来使用镜像站点
+    # os.environ['HF_ENDPOINT'] = 'https://hf-mirror.com'
+    pass
 from diffusers import StableDiffusionInpaintPipeline
 from torch import autocast
 from PIL import Image
@@ -33,7 +39,9 @@ def init_diffusion_engine(model_path, device):
     pipe = StableDiffusionInpaintPipeline.from_pretrained(
         model_path,
         revision="fp16",
-        dtype=torch.float16  # Use dtype instead of torch_dtype (deprecated)
+        dtype=torch.float16,  # Use dtype instead of torch_dtype (deprecated)
+        safety_checker=None,  # Disable NSFW safety checker to avoid black images
+        requires_safety_checker=False  # Disable safety checker requirement
     ).to(device)
 
     pipe.set_progress_bar_config(disable=True)

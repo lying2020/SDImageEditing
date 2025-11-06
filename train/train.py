@@ -85,7 +85,7 @@ def get_args_parser():
                        help='Learning rate controlling the step size for model parameter updates. '
                             'Larger values train faster but may be unstable, smaller values train slower but more stable. '
                             'Recommended range: 1e-3 to 1e-2')
-    parser.add_argument('--epochs', type=int, default=5,
+    parser.add_argument('--epochs', type=int, default=10,
                        help='Number of training epochs, how many times to iterate through the entire dataset. '
                             'For image editing tasks, usually 1-2 epochs are sufficient')
     parser.add_argument('--per_image_iteration', type=int, default=5,
@@ -146,7 +146,7 @@ def get_args_parser():
     parser.add_argument('--seed', default=42, type=int,
                        help='Random seed for controlling random number generation to ensure reproducibility. '
                             'Same seed + same parameters = same results')
-    parser.add_argument('--ckpt_interval', type=int, default=10,
+    parser.add_argument('--ckpt_interval', type=int, default=5,
                        help='Checkpoint saving interval, save model every N epochs')
 
     # ============================================================================
