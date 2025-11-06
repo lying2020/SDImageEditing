@@ -31,11 +31,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 print(sys.path)
 import project as prj
 
-from lr_schedule import WarmupLinearLRSchedule
-from engine import *
-from vis import *
+from utils.lr_schedule import WarmupLinearLRSchedule
+from utils.vis import *
 from utils.util2 import compose_text_with_templates, get_augmentations_template
 from utils.util import EditingJsonDataset, plot_images
+from utils.engine import *
 import utils.misc as misc
 from models.model import RGN
 from models.utils import visualize_images, read_image_from_url, draw_image_with_bbox_new, Bbox

@@ -4,10 +4,6 @@ from torchvision import transforms
 from einops import rearrange
 from PIL import ImageFilter, Image
 from torchvision.ops import roi_pool, roi_align
-from engine import *
-from models.clip_extractor import ClipExtractor
-from utils.util2 import get_augmentations_template, spherical_dist_loss, cosine_loss
-from models.utils import Bbox
 
 import os
 import torch.nn as nn
@@ -15,8 +11,18 @@ import numpy as np
 import torch
 import pdb
 import torch.nn.functional as F
-import models.vision_transformer as vits
+
 import torch.distributed as dist
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+print(sys.path)
+import project as prj
+
+from utils.engine import *
+from utils.util2 import get_augmentations_template, spherical_dist_loss, cosine_loss
+from models.utils import Bbox
+from models.clip_extractor import ClipExtractor
+import models.vision_transformer as vits
 
 class RGN(nn.Module):
     def __init__(self, image_size, device, args):

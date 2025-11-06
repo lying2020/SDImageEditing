@@ -6,27 +6,34 @@ from torchvision.utils import save_image
 from typing import List, Optional, Union
 from torch import autocast
 from torchvision import utils as vutils
-from utils.util import build_dataset, plot_images
-from lr_schedule import WarmupLinearLRSchedule
-from models.model import RGN
-from models.utils import visualize_images, read_image_from_url, draw_image_with_bbox_new, Bbox
-from utils.util2 import compose_text_with_templates, get_augmentations_template
 from torchvision.utils import draw_bounding_boxes
-from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
+import torchvision.transforms as T
 from torchvision import datasets, transforms
-from engine import *
-from utils.post_process import get_final_img
+from timm.data.constants import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 import random
 import os, jax, cv2, pdb
+
 import numpy as np
 import argparse, torch, inspect
 import PIL, time, json, datetime
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
-import utils.misc as misc
-import torchvision.transforms as T
 import torch.distributed as dist
+import os, sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+print(sys.path)
+
+from models.model import RGN
+from models.utils import visualize_images, read_image_from_url, draw_image_with_bbox_new, Bbox
+from utils.util import build_dataset, plot_images
+from utils.lr_schedule import WarmupLinearLRSchedule
+from utils.util2 import compose_text_with_templates, get_augmentations_template
+from utils.engine import *
+from utils.post_process import get_final_img
+import utils.misc as misc
+
+
 
 def map_cooridates(bbox, min_num=0, max_num=255):
     # input feat size: 32 x 32
