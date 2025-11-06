@@ -85,7 +85,7 @@ def get_args_parser():
                        help='Learning rate controlling the step size for model parameter updates. '
                             'Larger values train faster but may be unstable, smaller values train slower but more stable. '
                             'Recommended range: 1e-3 to 1e-2')
-    parser.add_argument('--epochs', type=int, default=10,
+    parser.add_argument('--epochs', type=int, default=5,
                        help='Number of training epochs, how many times to iterate through the entire dataset. '
                             'For image editing tasks, usually 1-2 epochs are sufficient')
     parser.add_argument('--per_image_iteration', type=int, default=5,
@@ -122,7 +122,7 @@ def get_args_parser():
     # ============================================================================
     # System Performance Parameters (affect training speed and resource usage)
     # ============================================================================
-    parser.add_argument('--batch_size', type=int, default=8,
+    parser.add_argument('--batch_size', type=int, default=1,
                        help='Batch size, number of images processed at once. '
                             'For image editing tasks, batch_size=1 usually works best, but can be increased for speed. '
                             'Note: GPU memory usage is proportional to batch_size')
@@ -198,7 +198,7 @@ def train(args, lr_schedule, model, template, len_train_dataset, data_loader_tra
             imgs = imgs.to(device=device_id, non_blocking=True)
             o_prompt, e_prompt = o_prompt[0], e_prompt[0]
             e_prompt = compose_text_with_templates(e_prompt, template)
-            with torch.cuda.amp.autocast():
+            with torch.amp.autocast('cuda'):  # Use new API instead of deprecated torch.cuda.amp.autocast
                 if use_distributed:
                     bboxs = torch.ceil(map_cooridates(model.module.get_anchor_box(imgs)))
                     imgs_new, mask_imgs = get_mask_imgs(imgs, bboxs)
@@ -230,10 +230,14 @@ def train(args, lr_schedule, model, template, len_train_dataset, data_loader_tra
 
 def main(args):
     # Check if running in distributed mode
-    print(f"Running in {'distributed' if args.distributed else 'single GPU'} mode")
-    if args.distributed:
+    # Use environment variables as the source of truth, but also check args.distributed
+    use_distributed = ('RANK' in os.environ and 'WORLD_SIZE' in os.environ) or args.distributed
+
+    if use_distributed:
+        print("Running in distributed mode")
         # Distributed training mode
-        dist.init_process_group("nccl", init_method='env://')
+        if not dist.is_initialized():
+            dist.init_process_group("nccl", init_method='env://')
         rank = dist.get_rank()
         device_id = rank % torch.cuda.device_count()
         num_tasks = misc.get_world_size()
@@ -246,7 +250,7 @@ def main(args):
 
     device = torch.device(args.device)
 
-    if args.distributed:
+    if use_distributed:
         seed = args.seed + misc.get_rank()
     else:
         seed = args.seed
@@ -261,7 +265,7 @@ def main(args):
         os.mkdir(args.save_path)
 
     model = RGN(image_size=args.image_size, device=device_id, args=args).to(device_id)
-    if args.distributed:
+    if use_distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
 
     if rank == 0 and not os.path.exists(args.output_dir):
@@ -273,7 +277,7 @@ def main(args):
 
     len_train_dataset = len(train_dataset)
 
-    if args.distributed:
+    if use_distributed:
         sampler = torch.utils.data.DistributedSampler(
             train_dataset, num_replicas=num_tasks, rank=rank, shuffle=False, drop_last=False
         )
@@ -300,15 +304,15 @@ def main(args):
         shuffle=False,
         pin_memory=args.pin_mem)
 
-    optim = configure_optimizers(model, args.lr, use_distributed=args.distributed)
+    optim = configure_optimizers(model, args.lr, use_distributed=use_distributed)
     total_steps = len_train_dataset / (args.batch_size * num_tasks)
     lr_schedule = CosineAnnealingLR(optim, T_max=args.epochs*total_steps)
     optim.zero_grad()
-    model = train(args, lr_schedule, model, template, len_train_dataset, data_loader_train, optim, device_id, use_distributed=args.distributed)
+    model = train(args, lr_schedule, model, template, len_train_dataset, data_loader_train, optim, device_id, use_distributed=use_distributed)
     if rank == 0:
         print('Generating edited images!')
         model.eval()
-        predict(args, model, template, data_loader_test, device_id, use_distributed=args.distributed)
+        predict(args, model, template, data_loader_test, device_id, use_distributed=use_distributed)
 
 
 

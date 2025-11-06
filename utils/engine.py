@@ -33,7 +33,7 @@ def init_diffusion_engine(model_path, device):
     pipe = StableDiffusionInpaintPipeline.from_pretrained(
         model_path,
         revision="fp16",
-        torch_dtype=torch.float16
+        dtype=torch.float16  # Use dtype instead of torch_dtype (deprecated)
     ).to(device)
 
     pipe.set_progress_bar_config(disable=True)

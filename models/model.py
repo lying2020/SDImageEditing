@@ -35,15 +35,47 @@ class RGN(nn.Module):
         self.checkpoint_path = args.load_checkpoint_path
         self.sample_number = args.point_number
         # Handle both distributed and non-distributed modes
-        if args.distributed:
-            self.rank = dist.get_rank()
-        else:
+        # Check if distributed process group is initialized
+        try:
+            if dist.is_initialized():
+                self.rank = dist.get_rank()
+            else:
+                self.rank = 0
+        except:
             self.rank = 0
         self.max_window_size = args.max_window_size
         self.pipe, self.generator = init_diffusion_engine(args.diffusion_model_path, device)
         self.dino = vits.__dict__["vit_base"](patch_size=patch_size, num_classes=0).to(device)
         self.dino.eval()
-        state_dict = torch.hub.load_state_dict_from_url(url="https://dl.fbaipublicfiles.com/dino/dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth")
+
+        # Download DINO model with error handling
+        dino_url = "https://dl.fbaipublicfiles.com/dino/dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth"
+        dino_cache_path = os.path.expanduser("~/.cache/torch/hub/checkpoints/dino_vitbase8_pretrain.pth")
+
+        if os.path.exists(dino_cache_path):
+            # Use cached version
+            if self.rank == 0:
+                print(f"Loading DINO from cache: {dino_cache_path}")
+            try:
+                state_dict = torch.load(dino_cache_path, map_location='cpu')
+            except Exception as e:
+                if self.rank == 0:
+                    print(f"Failed to load cached DINO model: {e}")
+                    print("Downloading DINO model...")
+                state_dict = torch.hub.load_state_dict_from_url(url=dino_url, map_location='cpu')
+        else:
+            # Download if not cached
+            if self.rank == 0:
+                print("Downloading DINO model (this may take a few minutes)...")
+            try:
+                state_dict = torch.hub.load_state_dict_from_url(url=dino_url, map_location='cpu')
+            except Exception as e:
+                if self.rank == 0:
+                    print(f"Failed to download DINO model: {e}")
+                    print("Please check your internet connection or download manually:")
+                    print(f"  wget {dino_url} -P ~/.cache/torch/hub/checkpoints/")
+                raise
+
         self.dino.load_state_dict(state_dict, strict=True)
 
         emb_dim, emb_dim2 = 12,8
@@ -141,7 +173,7 @@ class RGN(nn.Module):
                 roi_feats_i.append(roi_feat.unsqueeze(0))
             roi_feats.append(torch.cat(roi_feats_i, dim=0).unsqueeze(0))
         roi_feats = torch.cat(roi_feats, dim=0).reshape(bs*self.sample_number, -1, 8, 8)
-        anchor = F.gumbel_softmax(self.anchor_net(roi_feats), hard=True, eps=1e-20, dim=1)
+        anchor = F.gumbel_softmax(self.anchor_net(roi_feats), hard=True, dim=1)  # Removed deprecated eps parameter
         gap = torch.matmul(anchor, self.box)
 
         points = points.reshape(-1, 2).to(self.device)
