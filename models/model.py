@@ -34,7 +34,11 @@ class RGN(nn.Module):
         self.threshold, patch_size = 0.65, 8
         self.checkpoint_path = args.load_checkpoint_path
         self.sample_number = args.point_number
-        self.rank = dist.get_rank()
+        # Handle both distributed and non-distributed modes
+        if args.distributed:
+            self.rank = dist.get_rank()
+        else:
+            self.rank = 0
         self.max_window_size = args.max_window_size
         self.pipe, self.generator = init_diffusion_engine(args.diffusion_model_path, device)
         self.dino = vits.__dict__["vit_base"](patch_size=patch_size, num_classes=0).to(device)

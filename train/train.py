@@ -152,6 +152,8 @@ def get_args_parser():
     # ============================================================================
     # Distributed Training Parameters (multi-GPU/multi-machine training)
     # ============================================================================
+    parser.add_argument('--distributed', action='store_true', default=False,
+                       help='Whether to run distributed training, default is False')
     parser.add_argument('--world_size', default=1, type=int,
                        help='Total number of distributed processes, usually equals number_of_nodes × GPUs_per_node')
     parser.add_argument('--local_rank', default=0, type=int,
@@ -228,9 +230,8 @@ def train(args, lr_schedule, model, template, len_train_dataset, data_loader_tra
 
 def main(args):
     # Check if running in distributed mode
-    use_distributed = 'RANK' in os.environ and 'WORLD_SIZE' in os.environ
-
-    if use_distributed:
+    print(f"Running in {'distributed' if args.distributed else 'single GPU'} mode")
+    if args.distributed:
         # Distributed training mode
         dist.init_process_group("nccl", init_method='env://')
         rank = dist.get_rank()
@@ -245,7 +246,7 @@ def main(args):
 
     device = torch.device(args.device)
 
-    if use_distributed:
+    if args.distributed:
         seed = args.seed + misc.get_rank()
     else:
         seed = args.seed
@@ -260,7 +261,7 @@ def main(args):
         os.mkdir(args.save_path)
 
     model = RGN(image_size=args.image_size, device=device_id, args=args).to(device_id)
-    if use_distributed:
+    if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, find_unused_parameters=True)
 
     if rank == 0 and not os.path.exists(args.output_dir):
@@ -272,7 +273,7 @@ def main(args):
 
     len_train_dataset = len(train_dataset)
 
-    if use_distributed:
+    if args.distributed:
         sampler = torch.utils.data.DistributedSampler(
             train_dataset, num_replicas=num_tasks, rank=rank, shuffle=False, drop_last=False
         )
@@ -299,15 +300,15 @@ def main(args):
         shuffle=False,
         pin_memory=args.pin_mem)
 
-    optim = configure_optimizers(model, args.lr, use_distributed=use_distributed)
+    optim = configure_optimizers(model, args.lr, use_distributed=args.distributed)
     total_steps = len_train_dataset / (args.batch_size * num_tasks)
     lr_schedule = CosineAnnealingLR(optim, T_max=args.epochs*total_steps)
     optim.zero_grad()
-    model = train(args, lr_schedule, model, template, len_train_dataset, data_loader_train, optim, device_id, use_distributed=use_distributed)
+    model = train(args, lr_schedule, model, template, len_train_dataset, data_loader_train, optim, device_id, use_distributed=args.distributed)
     if rank == 0:
         print('Generating edited images!')
         model.eval()
-        predict(args, model, template, data_loader_test, device_id, use_distributed=use_distributed)
+        predict(args, model, template, data_loader_test, device_id, use_distributed=args.distributed)
 
 
 
